@@ -1,0 +1,9 @@
+﻿stages:
+  - build
+
+build-job:
+  stage: build
+  script:
+    - echo "Pipeline is working"
+    - echo "Project: 1pract"
+    - echo "Branch: feature/final"
