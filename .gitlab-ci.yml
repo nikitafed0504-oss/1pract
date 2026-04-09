@@ -1,14 +1,2 @@
-﻿image: alpine:latest
-
-stages:
-  - check
-
-check:
-  stage: check
-  script:
-    - echo "=== Checking project structure ==="
-    - ls -la
-    - echo "=== Looking for pom.xml ==="
-    - if [ -f "pom.xml" ]; then echo "✅ pom.xml found"; else echo "❌ pom.xml NOT found"; fi
-    - echo "=== Java files ==="
-    - find src -name "*.java" | head -5
+job1:
+  script: echo Hello
