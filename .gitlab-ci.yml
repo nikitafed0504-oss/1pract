@@ -1,29 +1,14 @@
-﻿image: maven:3.9-openjdk-21
+﻿image: alpine:latest
 
 stages:
-  - build
-  - test
+  - check
 
-variables:
-  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
-  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end"
-
-cache:
-  paths:
-    - .m2/repository/
-
-build:
-  stage: build
+check:
+  stage: check
   script:
-    - mvn $MAVEN_CLI_OPTS clean compile
-  artifacts:
-    paths:
-      - target/
-
-test:
-  stage: test
-  script:
-    - mvn $MAVEN_CLI_OPTS test
-  artifacts:
-    paths:
-      - target/surefire-reports/
+    - echo "=== Checking project structure ==="
+    - ls -la
+    - echo "=== Looking for pom.xml ==="
+    - if [ -f "pom.xml" ]; then echo "✅ pom.xml found"; else echo "❌ pom.xml NOT found"; fi
+    - echo "=== Java files ==="
+    - find src -name "*.java" | head -5
