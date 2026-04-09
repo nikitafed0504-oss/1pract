@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.4</version>
+        <version>3.4.4</version>  <!-- ИСПРАВЛЕНО -->
         <relativePath/>
     </parent>
 
@@ -69,6 +69,11 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Добавьте для совместимости с Thymeleaf + Spring Security -->
+        <dependency>
+            <groupId>org.thymeleaf.extras</groupId>
+            <artifactId>thymeleaf-extras-springsecurity6</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
