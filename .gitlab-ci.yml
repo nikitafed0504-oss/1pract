@@ -6,6 +6,7 @@ stages:
 
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end"
 
 cache:
   paths:
@@ -14,7 +15,7 @@ cache:
 build:
   stage: build
   script:
-    - mvn compile
+    - mvn $MAVEN_CLI_OPTS clean compile
   artifacts:
     paths:
       - target/
@@ -22,4 +23,7 @@ build:
 test:
   stage: test
   script:
-    - mvn test
+    - mvn $MAVEN_CLI_OPTS test
+  artifacts:
+    paths:
+      - target/surefire-reports/
