@@ -12,9 +12,7 @@ import java.io.StringReader;
 @RestController
 public class XmlController {
     @PostMapping(value = "/api/xml/parse", consumes = {MediaType.TEXT_XML_VALUE, MediaType.APPLICATION_XML_VALUE})
-    public String parse(@RequestBody String xml) throws Exception {
-        SAXReader reader = new SAXReader();
-        Document doc = reader.read(new StringReader(xml));
-        return doc.getRootElement().getText();
+            SAXReader reader = new SAXReader();
+            Document doc = reader.read(new StringReader(xml));
+        }
     }
-}
