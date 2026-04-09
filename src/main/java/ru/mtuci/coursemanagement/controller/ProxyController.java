@@ -8,8 +8,6 @@ import org.springframework.web.client.RestTemplate;
 @RestController
 public class ProxyController {
     @GetMapping("/api/proxy")
-    public String proxy(@RequestParam("targetUrl") String targetUrl) {
-        RestTemplate rt = new RestTemplate();
-        return rt.getForObject(targetUrl, String.class);
+            RestTemplate rt = new RestTemplate();
+        }
     }
-}
