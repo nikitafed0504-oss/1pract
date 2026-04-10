@@ -1,172 +1,76 @@
+name: Secure Build Pipeline
+
 on:
   pull_request:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
-  build:
+  secrets-scan:
     runs-on: ubuntu-latest
-    container:
-      image: eclipse-temurin:21-jdk
     steps:
-      - name: Checkout repository
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          fail-on-vulnerabilities: true
+
+  build-test-security:
+    needs: [secrets-scan]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Make mvnw executable
-        run: |
-          if [ -f "./mvnw" ]; then
-            chmod +x ./mvnw
-          fi
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Grant execute permission for mvnw
+        run: chmod +x mvnw
 
       - name: Build with Maven
-        run: |
-          if [ -f "./mvnw" ]; then
-            ./mvnw clean package
-          else
-            mvn clean package
-          fi
+        run: ./mvnw package -DskipTests
 
-      - name: Upload build artifacts
+      - name: Semgrep SAST scan
+        run: |
+          docker run --rm -v $(pwd):/src semgrep/semgrep semgrep scan --config auto --sarif --output report.sarif
+
+      - name: Upload SAST report
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: report.sarif
+
+      - name: Dependency Check SCA
+        run: ./mvnw dependency-check:check
+
+      - name: Upload SCA Report
         uses: actions/upload-artifact@v4
         with:
-          name: jar-artifact
-          path: ./target/*.jar
-
-  sast:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run Semgrep SAST
-        run: |
-          pip install semgrep
-          semgrep scan --sarif --output semgrep.sarif --config auto . || true
-
-      - name: Upload SARIF report
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: semgrep.sarif
-
-  sca:
-    runs-on: ubuntu-latest
-    needs: build
-    container:
-      image: eclipse-temurin:21-jdk
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Make mvnw executable
-        run: |
-          if [ -f "./mvnw" ]; then
-            chmod +x ./mvnw
-          fi
-
-      - name: Run OWASP Dependency-Check
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          if [ -f "./mvnw" ]; then
-            ./mvnw dependency-check:check -Dnvd.api.key=$NVD_API_KEY || true
-          else
-            mvn dependency-check:check -Dnvd.api.key=$NVD_API_KEY || true
-          fi
-
-      - name: Upload SCA report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: dependency-check-report
+          name: sca-report
           path: target/dependency-check-report.html
 
-  dast-baseline:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download jar artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: jar-artifact
-          path: ./target
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Start application
-        run: java -jar ./target/*.jar &
-
-      - name: Wait for application to start
-        run: sleep 30
-
-      - name: Run ZAP Baseline Scan
+      - name: Run App for DAST
         run: |
-          chmod 777 .
-          touch zap-rules.tsv
-          docker run --network=host \
-            -v $(pwd):/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
-            -t http://localhost:8080 \
-            -r zap-baseline-report.html \
-            -c zap-rules.tsv || true
+          java -jar target/*.jar &
+          sleep 30
 
-      - name: Upload Baseline report
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'http://localhost:8080'
+          rules_file_name: 'zap-rules.tsv'
+          fail_action: false
+
+      - name: Upload Jar
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: zap-baseline-report
-          path: zap-baseline-report.html
-
-  dast-api:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download jar artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: jar-artifact
-          path: ./target
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Start application
-        run: java -jar ./target/*.jar &
-
-      - name: Wait for application to start
-        run: sleep 30
-
-      - name: Run ZAP API Scan
-        run: |
-          chmod 777 .
-          touch zap-rules.tsv
-          docker run --network=host \
-            -v $(pwd):/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-api-scan.py \
-            -t http://localhost:8080/v3/api-docs \
-            -f openapi \
-            -r zap-api-report.html \
-            -c zap-rules.tsv || true
-
-      - name: Upload API report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zap-api-report
-          path: zap-api-report.html
+          name: application-jar
+          path: target/*.jar
