@@ -3,94 +3,77 @@
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
 
 stages:
+  - secrets
   - build
   - test
+  - fuzz
+
+gitleaks-scan:
+  stage: secrets
+  image: { name: zricethezav/gitleaks, entrypoint: [""] }
+  tags: [linux, bas2301]
+  script:
+    - gitleaks detect --no-git --source . -v --redact
+  allow_failure: false
 
 build-job:
   stage: build
-  tags:
-    - saas-linux-small-amd64
-  image: eclipse-temurin:17-jdk
+  needs: ["gitleaks-scan"]
+  image: eclipse-temurin:21-jdk
+  tags: [linux, bas2301]
   script:
-    - |
-      if [ -f "./mvnw" ]; then
-        chmod +x ./mvnw
-        ./mvnw clean package
-      else
-        mvn clean package
-      fi
+    - chmod +x mvnw
+    - ./mvnw package -DskipTests
   artifacts:
-    paths:
-      - ./target/*.jar
+    paths: [target/*.jar]
+    expire_in: 1 week
 
-sast-job:
+sast-semgrep:
   stage: test
-  tags:
-    - saas-linux-small-amd64
-  image: returntocorp/semgrep
+  image: semgrep/semgrep
+  tags: [linux, bas2301]
   script:
-    - semgrep ci --gitlab-sast > gl-sast-report.json || true
+    - semgrep scan --config auto --sarif --output report.sarif .
   artifacts:
-    when: always
-    reports:
-      sast: gl-sast-report.json
+    reports: { sast: report.sarif }
 
-sca-job:
+sca-dependency-check:
   stage: test
-  tags:
-    - saas-linux-small-amd64
-  image: eclipse-temurin:17-jdk
+  image: maven:3.9-eclipse-temurin-21
+  tags: [linux, bas2301]
   script:
-    - |
-      if [ -f "./mvnw" ]; then
-        chmod +x ./mvnw
-        ./mvnw dependency-check:check -Dnvd.api.key=$NVD_API_KEY || true
-      else
-        mvn dependency-check:check -Dnvd.api.key=$NVD_API_KEY || true
-      fi
+    - chmod +x mvnw
+    - ./mvnw dependency-check:check
   artifacts:
-    when: always
-    paths:
-      - target/dependency-check-report.html
+    paths: [target/dependency-check-report.html]
 
-dast-baseline-job:
+dast-zap:
   stage: test
-  tags:
-    - saas-linux-small-amd64
-  needs:
-    - build-job
-  image:
-    name: zaproxy/zap-stable
-    entrypoint: [""]
+  image: { name: zaproxy/zap-stable, entrypoint: [""] }
+  tags: [linux, bas2301]
   script:
-    - mkdir -p /zap/wrk
-    - touch /zap/wrk/zap-rules.tsv
-    - java -jar ./target/*.jar &
+    - apt-get update && apt-get install -y openjdk-21-jre
+    - java -jar target/*.jar &
     - sleep 30
-    - zap-baseline.py -t http://localhost:8080 -r zap-baseline-report.html -c /zap/wrk/zap-rules.tsv || true
-    - cp /zap/wrk/zap-baseline-report.html ./zap-baseline-report.html || true
+    - zap-baseline.py -t http://localhost:8081 -c zap-rules.tsv -r zap-report.html || true
   artifacts:
-    when: always
-    paths:
-      - zap-baseline-report.html
+    paths: [zap-report.html]
 
-dast-api-job:
-  stage: test
-  tags:
-    - saas-linux-small-amd64
-  needs:
-    - build-job
-  image:
-    name: zaproxy/zap-stable
-    entrypoint: [""]
+web-fuzzing:
+  stage: fuzz
+  image: alpine:latest
+  tags: [linux, bas2301]
   script:
-    - mkdir -p /zap/wrk
-    - touch /zap/wrk/zap-rules.tsv
-    - java -jar ./target/*.jar &
-    - sleep 30
-    - zap-api-scan.py -t http://localhost:8080/v3/api-docs -f openapi -r /zap/wrk/zap-api-report.html -c /zap/wrk/zap-rules.tsv || true
-    - cp /zap/wrk/zap-api-report.html ./zap-api-report.html || true
+    - apk add --no-cache curl openjdk-21-jre
+    - wget https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_amd64.tar.gz
+    - tar -xzf ffuf_2.1.0_linux_amd64.tar.gz
+    - chmod +x ffuf
+    - java -jar target/*.jar > app_fuzz.log 2>&1 &
+    - sleep 45
+    - printf "login\nregister\ncourses\nstudents\nadmin\nxml\nconfig\napi\nuser\npassword\nroot" > wordlist.txt
+    - ./ffuf -u http://localhost:8081/api/FUZZ -w wordlist.txt -mc all -o fuzz-report.json
   artifacts:
-    when: always
     paths:
-      - zap-api-report.html
+      - fuzz-report.json
+      - app_fuzz.log
+    expire_in: 1 week
