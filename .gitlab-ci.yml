@@ -1,0 +1,96 @@
+﻿workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+
+stages:
+  - build
+  - test
+
+build-job:
+  stage: build
+  tags:
+    - saas-linux-small-amd64
+  image: eclipse-temurin:17-jdk
+  script:
+    - |
+      if [ -f "./mvnw" ]; then
+        chmod +x ./mvnw
+        ./mvnw clean package
+      else
+        mvn clean package
+      fi
+  artifacts:
+    paths:
+      - ./target/*.jar
+
+sast-job:
+  stage: test
+  tags:
+    - saas-linux-small-amd64
+  image: returntocorp/semgrep
+  script:
+    - semgrep ci --gitlab-sast > gl-sast-report.json || true
+  artifacts:
+    when: always
+    reports:
+      sast: gl-sast-report.json
+
+sca-job:
+  stage: test
+  tags:
+    - saas-linux-small-amd64
+  image: eclipse-temurin:17-jdk
+  script:
+    - |
+      if [ -f "./mvnw" ]; then
+        chmod +x ./mvnw
+        ./mvnw dependency-check:check -Dnvd.api.key=$NVD_API_KEY || true
+      else
+        mvn dependency-check:check -Dnvd.api.key=$NVD_API_KEY || true
+      fi
+  artifacts:
+    when: always
+    paths:
+      - target/dependency-check-report.html
+
+dast-baseline-job:
+  stage: test
+  tags:
+    - saas-linux-small-amd64
+  needs:
+    - build-job
+  image:
+    name: zaproxy/zap-stable
+    entrypoint: [""]
+  script:
+    - mkdir -p /zap/wrk
+    - touch /zap/wrk/zap-rules.tsv
+    - java -jar ./target/*.jar &
+    - sleep 30
+    - zap-baseline.py -t http://localhost:8080 -r zap-baseline-report.html -c /zap/wrk/zap-rules.tsv || true
+    - cp /zap/wrk/zap-baseline-report.html ./zap-baseline-report.html || true
+  artifacts:
+    when: always
+    paths:
+      - zap-baseline-report.html
+
+dast-api-job:
+  stage: test
+  tags:
+    - saas-linux-small-amd64
+  needs:
+    - build-job
+  image:
+    name: zaproxy/zap-stable
+    entrypoint: [""]
+  script:
+    - mkdir -p /zap/wrk
+    - touch /zap/wrk/zap-rules.tsv
+    - java -jar ./target/*.jar &
+    - sleep 30
+    - zap-api-scan.py -t http://localhost:8080/v3/api-docs -f openapi -r /zap/wrk/zap-api-report.html -c /zap/wrk/zap-rules.tsv || true
+    - cp /zap/wrk/zap-api-report.html ./zap-api-report.html || true
+  artifacts:
+    when: always
+    paths:
+      - zap-api-report.html
