@@ -32,10 +32,15 @@ public class CourseService {
     }
 
     public List<Course> searchByTitle(String title) {
+        return jdbc.query(
+                "SELECT id, title, description, teacher_id FROM courses WHERE title = ?",
+                (rs, i) -> new Course(
                         rs.getLong("id"),
                         rs.getString("title"),
                         rs.getString("description"),
                         rs.getLong("teacher_id")
+                ),
+                title
         );
     }
 }

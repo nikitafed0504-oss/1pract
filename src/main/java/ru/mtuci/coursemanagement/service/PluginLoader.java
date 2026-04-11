@@ -7,6 +7,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class PluginLoader {
 
+    // Загрузка плагинов из произвольных URL отключена
+    // как небезопасная функциональность
     public void tryLoad() {
+        log.info("Plugin loading from external URLs is disabled for security reasons");
     }
 }
